@@ -4,6 +4,7 @@ import { useSession } from '../lib/auth-client.js'
 import { downloadAndMux, downloadAsMp3 } from '../lib/converters/mux.js'
 import { UNLOCK_ALL } from '../lib/testing.js'
 import { companionBase, setCompanionBase } from '../lib/companion.js'
+import { DOWNLOADS_COMING_SOON } from '../lib/features.js'
 
 const FREE_DOWNLOADS = 3
 
@@ -268,7 +269,44 @@ function DownloadAccess({ children }) {
   return children({ remaining, recordUse })
 }
 
+function ComingSoon() {
+  return (
+    <div className="mx-auto max-w-3xl px-5 py-12 sm:px-8">
+      <p className="flex items-center gap-3 font-mono text-xs font-medium uppercase tracking-[0.25em] text-ink-faint">
+        <span className="font-bold text-copper normal-case">//</span>
+        paste a link · pull it down
+      </p>
+      <div className="mt-10 rounded-sm border border-copper/60 bg-paper-raised p-8 text-center shadow-[0_0_80px_-32px_rgb(217_255_61/25%)]">
+        <p className="inline-block border border-copper/50 bg-copper-wash px-3 py-1 font-mono text-[0.68rem] font-bold uppercase tracking-[0.18em] text-copper">
+          coming soon
+        </p>
+        <h2 className="mt-4 text-xl font-bold uppercase tracking-[0.04em]">
+          Video downloads are almost here
+        </h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-soft">
+          We're putting the finishing touches on the downloader — mp4 up to 4K
+          and mp3, from YouTube and thousands of other sites. Check back very
+          shortly.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            to="/convert"
+            className="bg-copper px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.14em] text-paper transition hover:bg-ink"
+          >
+            Try the converter meanwhile
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Download() {
+  if (DOWNLOADS_COMING_SOON) return <ComingSoon />
+  return <DownloadTool />
+}
+
+function DownloadTool() {
   const [url, setUrl] = useState('')
   const [info, setInfo] = useState(null)
   const [probing, setProbing] = useState(false)

@@ -6,7 +6,7 @@ const navLinks = [
   { to: '/convert', label: 'convert' },
   { to: '/documents', label: 'documents' },
   { to: '/tools', label: 'tools' },
-  { to: '/download', label: 'download' },
+  { to: '/download', label: 'download', soon: true },
   { to: '/pricing', label: 'pricing' },
   { to: '/contact', label: 'contact' },
 ]
@@ -108,6 +108,14 @@ export default function Layout() {
                       0{index + 1}
                     </span>
                     {link.label}
+                    {link.soon && (
+                      <span
+                        aria-hidden="true"
+                        className="rounded-sm border border-line-strong px-1 font-mono text-[0.52rem] uppercase tracking-[0.1em] text-ink-faint"
+                      >
+                        soon
+                      </span>
+                    )}
                   </>
                 )}
               </NavLink>
@@ -207,6 +215,14 @@ export default function Layout() {
                     >
                       {item.label}
                     </span>
+                    {item.soon && (
+                      <span
+                        aria-hidden="true"
+                        className="shrink-0 self-center rounded-sm border border-line-strong px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-ink-faint"
+                      >
+                        soon
+                      </span>
+                    )}
                     {isActive && (
                       <span
                         aria-hidden="true"

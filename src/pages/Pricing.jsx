@@ -15,7 +15,7 @@ const freePlan = {
     'All PDF tools',
     'Documents ⇄ PDF — 3 conversions free',
     'Writing tools — 250 words per run',
-    'Video downloader — 3 free downloads',
+    'Video downloader — coming soon',
     'No file-size ceiling we impose',
   ],
 }
@@ -226,7 +226,7 @@ export default function Pricing() {
             {[
               'Everything in Free — unlimited',
               'Audio & video conversions',
-              'Video downloader — unlimited, YouTube, Instagram & more',
+              'Video downloader — unlimited, YouTube, Instagram & more (arriving soon)',
               'Unlimited documents ⇄ PDF (Word, PPT, XLSX & OpenDocument)',
               'Unlimited writing tools (paraphrase · AI scan · originality)',
               'Supports ongoing development',

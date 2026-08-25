@@ -51,7 +51,7 @@ const MANIFEST = [
     family: 'video downloader',
     inputs: 'youtube facebook instagram + more',
     outputs: 'mp4 · mp3',
-    note: '3 free · pro',
+    note: 'coming soon',
   },
 ]
 
@@ -70,11 +70,11 @@ const FAQ = [
   },
   {
     q: 'What do I get for free — and what does Pro cost?',
-    a: 'Everything in the converter is free. Documents→PDF and downloads include 3 free uses per account, and writing tools run free up to 250 words per check. Pro unlocks all of it without limits for a single $7 payment — no subscription.',
+    a: 'Everything in the converter is free. Documents→PDF includes 3 free uses per account, downloads are coming shortly (3 free uses), and writing tools run free up to 250 words per check. Pro unlocks all of it without limits for a single $7 payment — no subscription.',
   },
   {
     q: 'Can I download YouTube videos?',
-    a: 'Yes — paste any link in the Download tab. Every account includes 3 free downloads; Pro removes the cap.',
+    a: 'Very soon — the Download tab is in final testing. It will pull mp4 up to 4K and mp3 from YouTube and thousands of other sites, with 3 free downloads per account; Pro removes the cap.',
   },
   {
     q: 'Do I need an account?',
