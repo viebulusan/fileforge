@@ -180,7 +180,18 @@ export async function paypalCapture(req, res) {
       if (row.rows[0].status === 'captured') {
         await upgradeToPro(user.id)
         await client.query('COMMIT')
-        return sendJson(res, 200, { plan: 'pro', alreadyDone: true })
+        // Already paid earlier — hand back the existing key so the buyer
+        // still sees it instead of an empty success screen.
+        const existing = await pool.query(
+          'SELECT key FROM license_keys WHERE note = $1 LIMIT 1',
+          [KEY_NOTE_PREFIX + orderId],
+        )
+        return sendJson(res, 200, {
+          plan: 'pro',
+          alreadyDone: true,
+          licenseKey: existing.rows[0]?.key ?? null,
+          receiptEmailed: false,
+        })
       }
 
       captured = await paypalFetch(`/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
