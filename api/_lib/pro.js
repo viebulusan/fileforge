@@ -116,6 +116,28 @@ export async function proStatus(req, res) {
   }
 }
 
+// The license key from a captured PayPal payment, so buyers can always look
+// their key up on this page even if they lost the receipt email.
+const PAYPAL_KEY_NOTE_PREFIX = 'paypal:'
+
+export async function proKey(req, res) {
+  try {
+    const user = await sessionUser(req)
+    if (!user) return sendJson(res, 401, { error: 'Sign in first.' })
+    const found = await pool.query(
+      `SELECT k.key FROM payments p
+       JOIN license_keys k ON k.note = $1 || p.paypal_order_id
+       WHERE p.user_id = $2 AND p.status = 'captured'
+       ORDER BY COALESCE(p.captured_at, p.created_at) DESC
+       LIMIT 1`,
+      [PAYPAL_KEY_NOTE_PREFIX, user.id],
+    )
+    return sendJson(res, 200, { key: found.rows[0]?.key ?? null })
+  } catch {
+    return sendJson(res, 500, { error: 'Could not read your license key.' })
+  }
+}
+
 export async function proRedeem(req, res) {
   try {
     if (!sameOrigin(req)) {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { useSession, signOut } from '../lib/auth-client.js'
 
@@ -11,6 +11,7 @@ export default function Account() {
   // Optimistic plan: flips the moment a redeem succeeds so the page updates
   // without waiting on (or depending on) the session store's refetch.
   const [planOverride, setPlanOverride] = useState(null)
+  const [licenseKey, setLicenseKey] = useState(null)
 
   if (isPending) {
     return (
@@ -47,6 +48,20 @@ export default function Account() {
   }
 
   const isPro = planOverride === 'pro' || (user.plan ?? 'free') === 'pro'
+
+  useEffect(() => {
+    if (!isPro) return
+    let alive = true
+    fetch('/api/pro/key')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (alive && data?.key) setLicenseKey(data.key)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [isPro])
 
   async function redeem(event) {
     event.preventDefault()
@@ -124,6 +139,14 @@ export default function Account() {
             </dd>
           </div>
         </dl>
+
+        {isPro && licenseKey && (
+          <p className="mt-4 border-t border-line pt-4 font-mono text-xs leading-relaxed text-ink-faint">
+            your license key: <span className="font-bold tracking-wider text-copper">{licenseKey}</span>
+            {' — '}
+            proof of purchase; redeemable on another account if you ever switch.
+          </p>
+        )}
 
         {!isPro && (
           <form onSubmit={redeem} className="mt-7 border-t border-line pt-6">

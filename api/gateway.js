@@ -1,7 +1,7 @@
 // Single gateway for every non-auth API route. The Hobby plan caps
 // deployments at 12 serverless functions, so instead of one file per route,
 // vercel.json rewrites /api/* here and we dispatch on the original path.
-import { proRedeem, proStatus } from './_lib/pro.js'
+import { proRedeem, proStatus, proKey } from './_lib/pro.js'
 import { paypalCapture, paypalCreateOrder, paypalWebhook } from './_lib/paypal.js'
 import { textDetect, textParaphrase } from './_lib/text.js'
 import { originalityCheck } from './_lib/search-endpoint.js'
@@ -24,6 +24,7 @@ const ROUTES = {
   '/api/usage': { GET: usageStatus },
   '/api/usage/bump': { POST: usageBump },
   '/api/pro/status': { GET: proStatus },
+  '/api/pro/key': { GET: proKey },
   '/api/pro/redeem': { POST: proRedeem },
   '/api/paypal/order': { POST: paypalCreateOrder },
   '/api/paypal/capture': { POST: paypalCapture },
