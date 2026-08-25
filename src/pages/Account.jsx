@@ -38,7 +38,6 @@ export default function Account() {
     )
   }
 
-  const user = session?.user
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-5 py-28 text-center">
