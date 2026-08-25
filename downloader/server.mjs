@@ -89,15 +89,24 @@ app.use(express.json())
 
 app.get('/api/debug-pot', async (_req, res) => {
   const { spawn } = await import('node:child_process')
-  const proc = spawn(YTDLP, ['-v', '--simulate', '--print', '%(title)s', 'https://youtu.be/O6nXrSheFdc'])
-  let out = ''
-  proc.stdout.on('data', (d) => { out += d })
-  proc.stderr.on('data', (d) => { out += d })
-  proc.on('close', () => {
-    res.setHeader('content-type', 'text/plain; charset=utf-8')
-    const lines = out.split('\n').filter((l) => /pot|bgutil|Sign in|player|client|ERROR|debug/i.test(l))
-    res.end(lines.slice(-40).join('\n'))
+  const run = (cmd, args) => new Promise((resolve) => {
+    const proc = spawn(cmd, args)
+    let out = ''
+    proc.stdout.on('data', (d) => { out += d })
+    proc.stderr.on('data', (d) => { out += d })
+    proc.on('error', (e) => { out += String(e) })
+    proc.on('close', () => resolve(out))
   })
+  const nodeInfo = await run('sh', ['-c', 'which node; node --version; echo PATH=$PATH'])
+  const combos = ['web_safari', 'tv,web_safari', 'web', 'mweb,web_safari', 'default,web_safari']
+  const results = {}
+  for (const combo of combos) {
+    const out = await run(YTDLP, ['--no-warnings', '--simulate', '--print', '%(title)s', '--extractor-args', `youtube:player_client=${combo}`, 'https://youtu.be/O6nXrSheFdc'])
+    const ok = /super rich/.test(out)
+    results[combo] = ok ? 'PASS' : out.split('\n').filter((l) => /ERROR|Sign in|reloaded|not available/i.test(l)).at(-1)?.slice(0, 90) ?? 'fail'
+  }
+  res.setHeader('content-type', 'text/plain; charset=utf-8')
+  res.end('NODE:\n' + nodeInfo.slice(0, 400) + '\n\nCLIENTS:\n' + JSON.stringify(results, null, 1))
 })
 
 app.get('/api/health', (_req, res) => {
