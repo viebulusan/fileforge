@@ -152,6 +152,22 @@ app.get('/api/debug-pot', async (_req, res) => {
   res.end('NODE: ' + NODE_BIN + '\nBGUTIL PING: ' + (bgutilPing || '(empty)').slice(0, 150) + '\nBGUTIL LOG: ' + (bgutilLog || '(empty)').slice(0, 300) + '\n\nCLIENTS:\n' + JSON.stringify(results, null, 1))
 })
 
+app.get('/api/debug-verbose', async (_req, res) => {
+  const url = 'https://youtu.be/O6nXrSheFdc'
+  const out = await new Promise((resolve) => {
+    const proc = spawn(YTDLP, ['-v', '--no-warnings', '--simulate', '--print', '%(title)s', ...youtubeArgs(), url], {})
+    let all = ''
+    proc.stdout.on('data', (d) => { all += d })
+    proc.stderr.on('data', (d) => { all += d })
+    proc.on('error', (e) => { all += String(e) })
+    proc.on('close', () => resolve(all))
+  })
+  const keep = /pot|PO Token|token|player_client|player client|challenge|nsig|Signature|Sign in|not a bot|ERROR|Loading extractor|plugin|bgutil/i
+  const lines = out.split('\n').filter((l) => keep.test(l))
+  res.setHeader('content-type', 'text/plain; charset=utf-8')
+  res.end('YTDLP VERSION:\n' + (out.match(/\[debug\] Command-line config.*|\[debug\] yt-dlp version[^\n]*/)?.[0] ?? '') + '\n\n' + lines.slice(0, 100).join('\n'))
+})
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, ytDlp: YTDLP })
 })
