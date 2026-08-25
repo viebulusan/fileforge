@@ -26,6 +26,43 @@ function nextInQueue() {
   job()
 }
 
+const NODE_BIN = process.execPath
+
+// Extra args for the YouTube extractor: alternate player clients + a JS runtime
+// so yt-dlp can solve web challenges, while the bgutil plugin (auto-loaded from
+// the venv) supplies PO tokens from 127.0.0.1:4416. Overridable via YT_CLIENTS.
+function youtubeArgs() {
+  const clients = process.env.YT_CLIENTS || 'tv,web_safari'
+  return [
+    '--extractor-args', `youtube:player_client=${clients}`,
+    '--js-runtimes', `node:${NODE_BIN}`,
+  ]
+}
+
+const OPTIONAL_ARGS_RE = /(no such option|unknown option|unrecognized argument|invalid choice)/i
+const BOTCHECK_RE = /(sign in to confirm|not a bot)/i
+
+async function runYtDlpSmart(args, onStdout) {
+  try {
+    return await runYtDlp([...youtubeArgs(), ...args], onStdout)
+  } catch (error) {
+    if (!OPTIONAL_ARGS_RE.test(error.message)) throw error
+    // Older yt-dlp without one of the optional flags — retry bare.
+    return runYtDlp(args, onStdout)
+  }
+}
+
+// Free-tier instances wake cold: the bgutil POT server may need a moment.
+async function runYtDlpWithRetry(args, onStdout) {
+  try {
+    return await runYtDlpSmart(args, onStdout)
+  } catch (error) {
+    if (!BOTCHECK_RE.test(error.message)) throw error
+    await new Promise((r) => setTimeout(r, 2000))
+    return runYtDlpSmart(args, onStdout)
+  }
+}
+
 function ytdlpArgs(args) {
   return [
     '--no-warnings',
@@ -89,29 +126,30 @@ app.use(express.json())
 
 app.get('/api/debug-pot', async (_req, res) => {
   const { spawn } = await import('node:child_process')
-  const run = (cmd, args) => new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: true })
+  const run = (argv) => new Promise((resolve) => {
+    const proc = spawn(argv[0], argv.slice(1), { shell: false })
     let out = ''
     proc.stdout.on('data', (d) => { out += d })
     proc.stderr.on('data', (d) => { out += d })
     proc.on('error', (e) => { out += String(e) })
     proc.on('close', () => resolve(out))
   })
-  const bgutilPing = await run('curl -s -m 5 http://127.0.0.1:4416/ping')
-  const bgutilLog = await run('tail -5 /tmp/bgutil.log')
+  const bgutilPing = await run(['curl', '-s', '-m', '5', 'http://127.0.0.1:4416/ping'])
+  const bgutilLog = await run(['tail', '-5', '/tmp/bgutil.log'])
   const combos = [
-    ['web_safari + jsr', ['--js-runtimes', 'node:/usr/bin/node', '--extractor-args', 'youtube:player_client=web_safari']],
-    ['tv + jsr', ['--js-runtimes', 'node:/usr/bin/node', '--extractor-args', 'youtube:player_client=tv']],
-    ['default + jsr', ['--js-runtimes', 'node:/usr/bin/node']],
+    ['tv + jsr', [...youtubeArgs(), '--extractor-args', 'youtube:player_client=tv']],
+    ['web_safari + jsr', [...youtubeArgs(), '--extractor-args', 'youtube:player_client=web_safari']],
+    ['default clients + jsr', [...youtubeArgs()]],
+    ['plain (no extras)', []],
   ]
   const results = {}
   for (const [label, args] of combos) {
-    const out = await run(YTDLP, ['--no-warnings', '--simulate', '--print', '%(title)s', ...args, 'https://youtu.be/O6nXrSheFdc'])
+    const out = await run([YTDLP, '--no-warnings', '--simulate', '--print', '%(title)s', ...args, 'https://youtu.be/O6nXrSheFdc'])
     const ok = /super rich/.test(out)
     results[label] = ok ? 'PASS' : out.split('\n').filter((l) => /ERROR|Sign in|reloaded|not available|challenge/i.test(l)).at(-1)?.slice(0, 100) ?? 'fail'
   }
   res.setHeader('content-type', 'text/plain; charset=utf-8')
-  res.end('BGUTIL PING: ' + (bgutilPing || '(empty)').slice(0, 150) + '\nBGUTIL LOG: ' + (bgutilLog || '(empty)').slice(0, 300) + '\n\nCLIENTS:\n' + JSON.stringify(results, null, 1))
+  res.end('NODE: ' + NODE_BIN + '\nBGUTIL PING: ' + (bgutilPing || '(empty)').slice(0, 150) + '\nBGUTIL LOG: ' + (bgutilLog || '(empty)').slice(0, 300) + '\n\nCLIENTS:\n' + JSON.stringify(results, null, 1))
 })
 
 app.get('/api/health', (_req, res) => {
@@ -121,7 +159,7 @@ app.get('/api/health', (_req, res) => {
 app.post('/api/info', async (req, res) => {
   try {
     const url = assertHttpUrl(String(req.body?.url ?? ''))
-    const raw = await runYtDlp(ytdlpArgs(['-J', url]))
+    const raw = await runYtDlpWithRetry(ytdlpArgs(['-J', url]))
     const info = JSON.parse(raw)
 
     const heights = new Set()
@@ -187,7 +225,7 @@ app.post('/api/download', async (req, res) => {
   running += 1
   try {
     let filePath = null
-    await runYtDlp(ytdlpArgs([...args, url]), (chunk) => {
+    await runYtDlpWithRetry(ytdlpArgs([...args, url]), (chunk) => {
       const lines = chunk.toString().split('\n')
       for (const line of lines) {
         const trimmed = line.trim()
