@@ -165,6 +165,7 @@ export async function paypalCapture(req, res) {
     if (!orderId) return sendJson(res, 400, { error: 'Missing payment reference.' })
 
     const client = await pool.connect()
+    let payerEmail = null
     let captured
     try {
       await client.query('BEGIN')
@@ -202,6 +203,7 @@ export async function paypalCapture(req, res) {
       )
       await client.query(`UPDATE "user" SET plan = 'pro' WHERE id = $1`, [user.id])
       await client.query('COMMIT')
+      payerEmail = capture?.payer_email ?? captured.data.payer?.email_address ?? user.email ?? null
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {})
       throw error
@@ -210,7 +212,7 @@ export async function paypalCapture(req, res) {
     }
     const receipt = await deliverReceipt({
       orderId,
-      to: capture?.payer_email ?? captured.data.payer?.email_address ?? user.email ?? null,
+      to: payerEmail,
       amountCents: PRICE_CENTS,
       currency: CURRENCY,
     })
