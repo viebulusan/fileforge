@@ -14,6 +14,28 @@ const YTDLP = process.env.YTDLP_BIN || (fs.existsSync(VENV) ? VENV : 'yt-dlp')
 const TMP_DIR = path.join(os.tmpdir(), 'fileforge-downloads')
 fs.mkdirSync(TMP_DIR, { recursive: true })
 
+// Optional: paste a YouTube cookies.txt into the YT_COOKIES env var and every
+// yt-dlp call will use it. This is the reliable fix when YouTube blocks
+// datacenter IPs ("Sign in to confirm you're not a bot").
+const COOKIES_FILE = process.env.YT_COOKIES
+  ? path.join(os.tmpdir(), 'ff-youtube-cookies.txt')
+  : null
+if (COOKIES_FILE) {
+  fs.writeFileSync(COOKIES_FILE, process.env.YT_COOKIES.replace(/\\n/g, '\n'))
+}
+
+function ytdlpArgs(args) {
+  return [
+    '--no-warnings',
+    '--no-playlist',
+    '--no-progress',
+    '--socket-timeout', '20',
+    '--retries', '3',
+    ...(COOKIES_FILE ? ['--cookies', COOKIES_FILE] : []),
+    ...args,
+  ]
+}
+
 const MAX_JOBS = 2
 const JOB_TTL_MS = 10 * 60 * 1000
 
@@ -61,17 +83,6 @@ async function runYtDlpWithRetry(args, onStdout) {
     await new Promise((r) => setTimeout(r, 2000))
     return runYtDlpSmart(args, onStdout)
   }
-}
-
-function ytdlpArgs(args) {
-  return [
-    '--no-warnings',
-    '--no-playlist',
-    '--no-progress',
-    '--socket-timeout', '20',
-    '--retries', '3',
-    ...args,
-  ]
 }
 
 function runYtDlp(args, onStdout) {
@@ -124,7 +135,7 @@ const app = express()
 app.use(cors({ origin: true }))
 app.use(express.json())
 
-app.get('/api/debug-pot', async (_req, res) => {
+app.get('/api/debug-pot', async (req, res) => {
   const { spawn } = await import('node:child_process')
   const run = (argv) => new Promise((resolve) => {
     const proc = spawn(argv[0], argv.slice(1), { shell: false })
@@ -134,22 +145,23 @@ app.get('/api/debug-pot', async (_req, res) => {
     proc.on('error', (e) => { out += String(e) })
     proc.on('close', () => resolve(out))
   })
+  const target = String(req.query.url ?? 'https://youtu.be/O6nXrSheFdc')
   const bgutilPing = await run(['curl', '-s', '-m', '5', 'http://127.0.0.1:4416/ping'])
-  const bgutilLog = await run(['tail', '-5', '/tmp/bgutil.log'])
-  const combos = [
-    ['tv + jsr', [...youtubeArgs(), '--extractor-args', 'youtube:player_client=tv']],
-    ['web_safari + jsr', [...youtubeArgs(), '--extractor-args', 'youtube:player_client=web_safari']],
-    ['default clients + jsr', [...youtubeArgs()]],
-    ['plain (no extras)', []],
-  ]
+  const clientSets = String(req.query.clients ?? 'default')
+    .split(',').map((s) => s.trim()).filter(Boolean)
   const results = {}
-  for (const [label, args] of combos) {
-    const out = await run([YTDLP, '--no-warnings', '--simulate', '--print', '%(title)s', ...args, 'https://youtu.be/O6nXrSheFdc'])
-    const ok = /super rich/.test(out)
-    results[label] = ok ? 'PASS' : out.split('\n').filter((l) => /ERROR|Sign in|reloaded|not available|challenge/i.test(l)).at(-1)?.slice(0, 100) ?? 'fail'
+  for (const set of clientSets) {
+    const args = set === 'default'
+      ? [...youtubeArgs()]
+      : [...youtubeArgs(), '--extractor-args', `youtube:player_client=${set}`]
+    const out = await run([YTDLP, '--no-warnings', '--simulate', '--print', '%(title)s', ...args, target])
+    const ok = !/ERROR|Sign in/.test(out) && out.trim().length > 0
+    results[set] = ok
+      ? 'PASS: ' + out.trim().split('\n')[0].slice(0, 80)
+      : out.split('\n').filter((l) => /ERROR|Sign in|reloaded|not available|challenge/i.test(l)).at(-1)?.slice(0, 110) ?? 'fail'
   }
   res.setHeader('content-type', 'text/plain; charset=utf-8')
-  res.end('NODE: ' + NODE_BIN + '\nBGUTIL PING: ' + (bgutilPing || '(empty)').slice(0, 150) + '\nBGUTIL LOG: ' + (bgutilLog || '(empty)').slice(0, 300) + '\n\nCLIENTS:\n' + JSON.stringify(results, null, 1))
+  res.end('NODE: ' + NODE_BIN + '\nBGUTIL PING: ' + (bgutilPing || '(empty)').slice(0, 150) + '\n\nCLIENTS:\n' + JSON.stringify(results, null, 1))
 })
 
 app.get('/api/debug-verbose', async (_req, res) => {
