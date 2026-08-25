@@ -1,0 +1,10 @@
+# Never upload local secrets or dev-only artifacts to Vercel builds.
+# Vite bakes VITE_* vars from uploaded .env files into the public bundle.
+.env
+.env.*
+!.env.example
+office/
+dist/
+.vite/
+*.log
+base.pid

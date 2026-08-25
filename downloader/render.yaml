@@ -1,0 +1,14 @@
+# Render.com blueprint — free one-click hosting for the FileForge downloader.
+# Deploy: push this repo to GitHub → Render dashboard → New → Blueprint →
+# point it at the repo → Render reads this file → Create.
+# Then set VITE_DOWNLOADER_URL in Vercel to your service URL
+# (https://<name>.onrender.com) and redeploy the site.
+services:
+  - type: web
+    name: fileforge-downloader
+    runtime: node
+    plan: free
+    build: npm install && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install --upgrade yt-dlp
+    start: node server.mjs
+    healthCheckPath: /api/health
+    autoDeploy: true
