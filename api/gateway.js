@@ -11,6 +11,7 @@ import { verifySend } from './_lib/verify-send.js'
 import { verifyCheck } from './_lib/verify-check.js'
 import { downloadInfo } from './_lib/download-info.js'
 import { downloadFile } from './_lib/download-file.js'
+import { accountDelete } from './_lib/account.js'
 
 export const config = { maxDuration: 60 }
 
@@ -35,6 +36,7 @@ const ROUTES = {
   '/api/contact': { POST: contactSubmit },
   '/api/verify/send': { POST: verifySend },
   '/api/verify/check': { POST: verifyCheck },
+  '/api/account/delete': { POST: accountDelete },
   '/api/download/info': { POST: downloadInfo, GET: downloadInfo },
   '/api/download/file': { POST: downloadFile },
 }

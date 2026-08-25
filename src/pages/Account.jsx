@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router'
 import { useSession, signOut } from '../lib/auth-client.js'
 
 export default function Account() {
@@ -11,24 +11,13 @@ export default function Account() {
   // Optimistic plan: flips the moment a redeem succeeds so the page updates
   // without waiting on (or depending on) the session store's refetch.
   const [planOverride, setPlanOverride] = useState(null)
-  const [licenseKey, setLicenseKey] = useState(null)
+  const navigate = useNavigate()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [delError, setDelError] = useState('')
 
   const user = session?.user
-  const isProEarly = planOverride === 'pro' || (user?.plan ?? 'free') === 'pro'
-
-  useEffect(() => {
-    if (!isProEarly) return
-    let alive = true
-    fetch('/api/pro/key')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (alive && data?.key) setLicenseKey(data.key)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [isProEarly])
 
   if (isPending) {
     return (
@@ -64,6 +53,28 @@ export default function Account() {
   }
 
   const isPro = planOverride === 'pro' || (user.plan ?? 'free') === 'pro'
+
+  async function doDelete(event) {
+    event.preventDefault()
+    if (deleting) return
+    setDeleting(true)
+    setDelError('')
+    try {
+      const res = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: deleteConfirm.trim() }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error ?? 'Could not delete your account.')
+      await signOut()
+      navigate('/')
+    } catch (err) {
+      setDelError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   async function redeem(event) {
     event.preventDefault()
@@ -197,6 +208,74 @@ export default function Account() {
           >
             Sign out
           </button>
+        </div>
+
+        <div className="mt-10 rounded-sm border border-red-900/50 bg-red-950/20 p-5">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-red-400">
+            danger zone
+          </p>
+          {!confirmDelete ? (
+            <>
+              <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                Deleting your account removes your profile, sessions, payment
+                records and usage history permanently. This cannot be undone.
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="mt-4 rounded-sm border border-red-900/60 px-4 py-2 font-mono text-xs uppercase tracking-[0.14em] text-red-400 transition hover:bg-red-950/40"
+              >
+                Delete my account
+              </button>
+            </>
+          ) : (
+            <form
+              onSubmit={(event) => void doDelete(event)}
+              className="mt-3"
+            >
+              <label
+                htmlFor="delete-confirm"
+                className="block font-mono text-xs leading-relaxed text-ink-soft"
+              >
+                type <span className="font-bold text-red-400">DELETE</span> to
+                confirm — this is permanent
+              </label>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                <input
+                  id="delete-confirm"
+                  value={deleteConfirm}
+                  onChange={(event) => setDeleteConfirm(event.target.value)}
+                  placeholder="DELETE"
+                  spellCheck="false"
+                  autoComplete="off"
+                  className="min-w-0 flex-1 rounded-sm border border-red-900/60 bg-paper px-4 py-2.5 font-mono text-sm uppercase outline-none transition placeholder:text-ink-faint focus:border-red-400"
+                />
+                <button
+                  type="submit"
+                  disabled={deleting || deleteConfirm.trim().toUpperCase() !== 'DELETE'}
+                  className="rounded-sm bg-red-500/90 px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.14em] text-white transition hover:bg-red-600 disabled:opacity-40"
+                >
+                  {deleting ? 'Deleting…' : 'Permanently delete'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmDelete(false)
+                    setDeleteConfirm('')
+                    setDelError('')
+                  }}
+                  className="border-b border-line-strong pb-0.5 font-mono text-xs uppercase tracking-[0.14em] text-ink-faint transition hover:text-copper"
+                >
+                  cancel
+                </button>
+              </div>
+              {delError && (
+                <p role="alert" className="mt-3 font-mono text-xs text-red-400">
+                  {delError}
+                </p>
+              )}
+            </form>
+          )}
         </div>
       </div>
     </div>
