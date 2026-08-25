@@ -230,8 +230,8 @@ export default function Pricing() {
             <span className="font-mono text-xs text-ink-soft">once</span>
           </p>
           <p className="mt-4 text-sm leading-relaxed text-ink-soft">
-            The heavy machinery: ffmpeg media conversion, the video downloader,
-            the office suite and unlimited writing tools.
+            The heavy machinery: ffmpeg media conversion, the video downloader
+            (arriving soon), the office suite and unlimited writing tools.
           </p>
           <ul className="mt-7 space-y-2.5 text-sm">
             {[

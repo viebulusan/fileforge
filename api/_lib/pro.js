@@ -2,6 +2,8 @@ import crypto from 'node:crypto'
 import { makePool } from './db.js'
 import { auth } from './auth.js'
 import { clientIp, rateLimited } from './ratelimit.js'
+import { mailConfigured, sendMail } from './mail.js'
+import { receiptEmail } from './mail-templates.js'
 
 const pool = makePool()
 
@@ -117,22 +119,67 @@ export async function proStatus(req, res) {
 }
 
 // The license key from a captured PayPal payment, so buyers can always look
-// their key up on this page even if they lost the receipt email.
+// their key up on this page even if they lost the receipt email. Self-heals:
+// if the payment captured but no key exists yet (webhook missed, older code,
+// mail hiccup), one is minted on first visit and emailed to the buyer.
 const PAYPAL_KEY_NOTE_PREFIX = 'paypal:'
 
 export async function proKey(req, res) {
   try {
     const user = await sessionUser(req)
     if (!user) return sendJson(res, 401, { error: 'Sign in first.' })
-    const found = await pool.query(
-      `SELECT k.key FROM payments p
-       JOIN license_keys k ON k.note = $1 || p.paypal_order_id
-       WHERE p.user_id = $2 AND p.status = 'captured'
-       ORDER BY COALESCE(p.captured_at, p.created_at) DESC
-       LIMIT 1`,
-      [PAYPAL_KEY_NOTE_PREFIX, user.id],
-    )
-    return sendJson(res, 200, { key: found.rows[0]?.key ?? null })
+
+    let key = null
+    let healed = false
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const pays = await client.query(
+        `SELECT paypal_order_id, payer_email FROM payments
+         WHERE user_id = $1 AND status = 'captured'
+         ORDER BY COALESCE(captured_at, created_at) DESC`,
+        [user.id],
+      )
+      for (const pay of pays.rows) {
+        const note = PAYPAL_KEY_NOTE_PREFIX + pay.paypal_order_id
+        const existing = await client.query(
+          'SELECT key FROM license_keys WHERE note = $1 LIMIT 1',
+          [note],
+        )
+        if (existing.rowCount > 0) {
+          key = existing.rows[0].key
+          break
+        }
+        const [fresh] = generateKeys(1)
+        await client.query(
+          'INSERT INTO license_keys (key, note) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [fresh, note],
+        )
+        key = fresh
+        healed = true
+        // Catch-up receipt so the buyer still gets their emailed copy.
+        if (pay.payer_email && mailConfigured()) {
+          void sendMail({
+            to: pay.payer_email,
+            ...receiptEmail({
+              key: fresh,
+              amount: pay.amount_cents ?? 700,
+              currency: pay.currency ?? 'USD',
+              orderId: pay.paypal_order_id,
+            }),
+          }).catch(() => {})
+        }
+        break
+      }
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      client.release()
+    }
+    if (healed) console.error('license key self-healed for user', user.id)
+    return sendJson(res, 200, { key })
   } catch {
     return sendJson(res, 500, { error: 'Could not read your license key.' })
   }
