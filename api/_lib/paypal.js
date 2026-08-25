@@ -1,5 +1,8 @@
 import { makePool } from './db.js'
 import { readJsonBody, sameOrigin, sendJson, sessionUser } from './pro.js'
+import { generateKeys } from './pro.js'
+import { receiptEmail } from './mail-templates.js'
+import { mailConfigured, sendMail } from './mail.js'
 import { clientIp, rateLimited } from './ratelimit.js'
 
 const pool = makePool()
@@ -57,6 +60,39 @@ async function paypalFetch(path, options) {
 
 async function upgradeToPro(userId) {
   await pool.query(`UPDATE "user" SET plan = 'pro' WHERE id = $1`, [userId])
+}
+
+const KEY_NOTE_PREFIX = 'paypal:'
+
+// Issue the buyer's license key exactly once per order (the capture endpoint
+// and the webhook backup both call this; `note` makes it idempotent) and
+// email the receipt. Never throws — a mail hiccup must not fail a payment.
+async function deliverReceipt({ orderId, to, amountCents, currency }) {
+  try {
+    const note = KEY_NOTE_PREFIX + orderId
+    const existing = await pool.query(
+      'SELECT key FROM license_keys WHERE note = $1 LIMIT 1',
+      [note],
+    )
+    if (existing.rowCount > 0) return { key: existing.rows[0].key, emailed: false }
+    const [key] = generateKeys(1)
+    await pool.query(
+      'INSERT INTO license_keys (key, note) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+      [key, note],
+    )
+    let emailed = false
+    if (to && mailConfigured()) {
+      const delivery = await sendMail({
+        to,
+        ...receiptEmail({ key, amount: amountCents, currency, orderId }),
+      })
+      emailed = Boolean(delivery?.sent)
+    }
+    return { key, emailed }
+  } catch (error) {
+    console.error('receipt delivery failed', error.message)
+    return null
+  }
 }
 
 export async function paypalCreateOrder(req, res) {
@@ -172,7 +208,13 @@ export async function paypalCapture(req, res) {
     } finally {
       client.release()
     }
-    return sendJson(res, 200, { plan: 'pro' })
+    const receipt = await deliverReceipt({
+      orderId,
+      to: capture?.payer_email ?? captured.data.payer?.email_address ?? user.email ?? null,
+      amountCents: PRICE_CENTS,
+      currency: CURRENCY,
+    })
+    return sendJson(res, 200, { plan: 'pro', licenseKey: receipt?.key ?? null, receiptEmailed: receipt?.emailed === true })
   } catch (error) {
     console.error('capture error', error.message)
     return sendJson(res, 500, { error: 'Payment capture failed on our side.' })
@@ -255,6 +297,18 @@ export async function paypalWebhook(req, res) {
       throw error
     } finally {
       client.release()
+    }
+    // Backup path (capture endpoint unreachable): deliver the receipt here.
+    // deliverReceipt's note lookup makes double delivery impossible.
+    if (orderId) {
+      const cap = event.resource
+      const amountCents = Math.round(Number(cap.amount?.value ?? 0) * 100)
+      await deliverReceipt({
+        orderId,
+        to: cap.payer?.email_address ?? null,
+        amountCents,
+        currency: cap.amount?.currency_code ?? 'USD',
+      })
     }
     return sendJson(res, 200, { received: true })
   } catch (error) {

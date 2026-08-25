@@ -326,3 +326,66 @@ export function contactAckEmail({ name, message }) {
     ].join('\n'),
   }
 }
+
+export function receiptEmail({ name, key, amount, currency, orderId }) {
+  const who = name ? `Thanks, ${name}!` : 'Thanks!'
+  const bodyHtml = `
+  <tr>
+    <td class="ff-pad" style="padding:18px 40px 0 40px;">${paragraph(
+      `${who} your one-time FileForge Pro payment went through. Pro is already unlocked on the account you bought it from — this key is your proof of purchase.`,
+    )}</td>
+  </tr>
+  <tr>
+    <td class="ff-pad" style="padding:6px 40px 0 40px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${CARD}" style="border:1px solid ${LINE};border-radius:4px;">
+        <tr>
+          <td style="padding:16px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-family:${MONO};font-size:11px;color:${INK_FAINT};letter-spacing:0.14em;text-transform:uppercase;padding-bottom:8px;">license key</td>
+              </tr>
+              <tr>
+                <td align="center" bgcolor="${BG}" style="background-color:${BG};border:1px solid ${ACCENT_DIM};border-radius:4px;padding:12px 10px;font-family:${MONO};font-size:19px;font-weight:700;letter-spacing:2px;color:${ACCENT};">${key}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 16px 14px 16px;font-family:${MONO};font-size:12px;line-height:1.7;color:${INK_FAINT};">
+            paid: <span style="color:${INK};">${currency} ${(amount / 100).toFixed(2)}</span> · once, no subscription<br />
+            order: ${orderId}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td class="ff-pad" style="padding:14px 40px 0 40px;">${paragraph(
+      'Pro stays attached to your account automatically — you never need to type the key. If you ever want Pro on a different account, sign in there and redeem the key on your Account page.',
+    )}</td>
+  </tr>
+  <tr><td style="padding:26px 0 30px 0;">&nbsp;</td></tr>`
+  return {
+    subject: `Your FileForge Pro license key — ${key}`,
+    html: shell({
+      preheader: 'Payment received — your license key is inside.',
+      kicker: 'payment received',
+      title: 'Welcome to Pro',
+      bodyHtml,
+      footnote:
+        'Keep this email — the key is your proof of purchase. Questions? Just reply to this email.',
+    }),
+    text: [
+      `${who} Your FileForge Pro payment went through.`,
+      '',
+      `License key: ${key}`,
+      `Paid: ${currency} ${(amount / 100).toFixed(2)} (one-time)`,
+      `Order: ${orderId}`,
+      '',
+      'Pro is unlocked on the account you paid from — no need to enter the key.',
+      'To move Pro to another account later, redeem the key on that account\'s Account page.',
+      '',
+      '— FileForge',
+    ].join('\n'),
+  }
+}

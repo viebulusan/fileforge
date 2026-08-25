@@ -60,6 +60,7 @@ function PaypalCheckout({ onCaptured }) {
   const [paid, setPaid] = useState(false)
   const [paying, setPaying] = useState(false)
   const [error, setError] = useState('')
+  const [licenseKey, setLicenseKey] = useState(null)
 
   async function createOrder() {
     setError('')
@@ -82,6 +83,7 @@ function PaypalCheckout({ onCaptured }) {
       // Push the fresh plan through the session store so the badge flips
       // without a manual refresh.
       await onCaptured?.()
+      setLicenseKey(json?.licenseKey ?? null)
       setPaid(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Payment failed.')
@@ -92,9 +94,18 @@ function PaypalCheckout({ onCaptured }) {
 
   if (paid) {
     return (
-      <p role="status" className="mt-8 rounded-sm border border-copper/40 bg-copper-wash px-4 py-2.5 text-center font-mono text-xs leading-relaxed text-copper-deep">
-        Payment received — Pro is unlocked. Every tool is yours now.
-      </p>
+      <div className="mt-8 space-y-3">
+        <p role="status" className="rounded-sm border border-copper/40 bg-copper-wash px-4 py-2.5 text-center font-mono text-xs leading-relaxed text-copper-deep">
+          Payment received — Pro is unlocked. Every tool is yours now.
+        </p>
+        {licenseKey && (
+          <p className="text-center font-mono text-[0.68rem] leading-relaxed text-ink-faint">
+            your license key: <span className="font-bold tracking-wider text-copper">{licenseKey}</span>
+            {' — '}
+            a receipt with this key was also emailed to you. keep it as proof of purchase.
+          </p>
+        )}
+      </div>
     )
   }
 
