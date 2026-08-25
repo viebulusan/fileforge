@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
+import dns from 'node:dns/promises'
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import os from 'node:os'
 import express from 'express'
@@ -7,6 +9,94 @@ import cors from 'cors'
 
 const PORT = Number(process.env.PORT) || 8787
 const HOST = process.env.HOST ?? (process.env.PORT ? '0.0.0.0' : '127.0.0.1')
+
+// ---- access control -------------------------------------------------------
+// The hosted site calls this service straight from the browser, so the
+// allowlist is what keeps strangers from borrowing our yt-dlp instance.
+const ALLOWED_ORIGINS = new Set(
+  [
+    'https://fileforge-tawny.vercel.app',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    ...(process.env.EXTRA_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  ],
+)
+
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for']
+  if (typeof fwd === 'string' && fwd.trim()) return fwd.split(',')[0].trim()
+  return req.socket?.remoteAddress || 'unknown'
+}
+
+// Small sliding-window limiter — enough to keep one IP from hogging jobs.
+const WINDOW_MS = 60_000
+const hitsByIp = new Map()
+function rateLimited(req, max) {
+  const now = Date.now()
+  if (hitsByIp.size > 4000) hitsByIp.clear()
+  const ip = clientIp(req)
+  const recent = (hitsByIp.get(ip) ?? []).filter((t) => now - t < WINDOW_MS)
+  if (recent.length >= max) {
+    hitsByIp.set(ip, recent)
+    return true
+  }
+  recent.push(now)
+  hitsByIp.set(ip, recent)
+  return false
+}
+
+// ---- SSRF guard -----------------------------------------------------------
+// yt-dlp will happily fetch whatever it is told to. Never let a submitted URL
+// name a loopback / private / link-local target.
+function isPrivateIpv4(ip) {
+  const [a, b] = ip.split('.').map(Number)
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  )
+}
+function isPrivateIp(ip) {
+  if (net.isIP(ip) === 4) return isPrivateIpv4(ip)
+  const lower = String(ip).toLowerCase()
+  return (
+    lower === '::' || lower === '::1' ||
+    /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower) || /^ff/.test(lower) ||
+    (() => { const m = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/); return m ? isPrivateIpv4(m[1]) : false })()
+  )
+}
+async function assertPublicUrl(rawUrl) {
+  let url
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw new Error('Invalid link.')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Only http(s) links are supported.')
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
+  if (!host || host === '*' || /(^|\.)(localhost|local|internal|intranet|lan)$/.test(host)) {
+    throw new Error('That link points somewhere we are not allowed to go.')
+  }
+  if (net.isIP(host)) {
+    if (isPrivateIp(host)) throw new Error('That link points at a private network.')
+    return url
+  }
+  try {
+    const addrs = await dns.lookup(host, { all: true, verbatim: true })
+    if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) {
+      throw new Error('That link points at a private network.')
+    }
+  } catch (error) {
+    if (error.message?.includes('private network')) throw error
+    throw new Error('That link could not be resolved.')
+  }
+  return url
+}
 
 const VENV = path.join(import.meta.dirname, '.venv', 'bin', 'yt-dlp')
 const YTDLP = process.env.YTDLP_BIN || (fs.existsSync(VENV) ? VENV : 'yt-dlp')
@@ -118,22 +208,32 @@ function runYtDlp(args, onStdout) {
   })
 }
 
-function assertHttpUrl(url) {
-  let parsed
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new Error('That does not look like a URL')
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Only http(s) links are supported')
-  }
-  return parsed.href
-}
-
 const app = express()
-app.use(cors({ origin: true }))
-app.use(express.json())
+app.set('trust proxy', true)
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Allow same-origin/no-origin tools (health checks) + the allowlist.
+      if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true)
+      cb(null, false)
+    },
+  }),
+)
+app.use(express.json({ limit: '16kb' }))
+
+// Enforce the allowlist on every state-changing route: browsers always send
+// Origin on cross-origin requests, so anything else is a non-browser client
+// (curl, scripts) — those still pass but hit the per-IP rate limiter.
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (req.method !== 'GET' && origin && !ALLOWED_ORIGINS.has(origin)) {
+    return res.status(403).json({ error: 'Origin not allowed.' })
+  }
+  if (rateLimited(req, req.method === 'GET' ? 60 : req.path === '/api/download' ? 6 : 20)) {
+    return res.status(429).json({ error: 'Too many requests — wait a minute.' })
+  }
+  next()
+})
 
 app.get('/api/debug-pot', async (req, res) => {
   const { spawn } = await import('node:child_process')
@@ -145,7 +245,12 @@ app.get('/api/debug-pot', async (req, res) => {
     proc.on('error', (e) => { out += String(e) })
     proc.on('close', () => resolve(out))
   })
-  const target = String(req.query.url ?? 'https://youtu.be/O6nXrSheFdc')
+  let target
+  try {
+    target = await assertPublicUrl(String(req.query.url ?? 'https://youtu.be/O6nXrSheFdc'))
+  } catch (error) {
+    return res.status(400).json({ error: error.message })
+  }
   const bgutilPing = await run(['curl', '-s', '-m', '5', 'http://127.0.0.1:4416/ping'])
   const clientSets = String(req.query.clients ?? 'default')
     .split(',').map((s) => s.trim()).filter(Boolean)
@@ -154,7 +259,7 @@ app.get('/api/debug-pot', async (req, res) => {
     const args = set === 'default'
       ? [...youtubeArgs()]
       : [...youtubeArgs(), '--extractor-args', `youtube:player_client=${set}`]
-    const out = await run([YTDLP, '--no-warnings', '--simulate', '--print', '%(title)s', ...args, target])
+    const out = await run([YTDLP, '--no-warnings', '--simulate', '--print', '%(title)s', ...args, target.href])
     const ok = !/ERROR|Sign in/.test(out) && out.trim().length > 0
     results[set] = ok
       ? 'PASS: ' + out.trim().split('\n')[0].slice(0, 80)
@@ -186,8 +291,13 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/info', async (req, res) => {
   try {
-    const url = assertHttpUrl(String(req.body?.url ?? ''))
-    const raw = await runYtDlpWithRetry(ytdlpArgs(['-J', url]))
+    let url
+    try {
+      url = await assertPublicUrl(String(req.body?.url ?? '').trim())
+    } catch (error) {
+      return res.status(400).json({ error: error.message })
+    }
+    const raw = await runYtDlpWithRetry(ytdlpArgs(['-J', url.href]))
     const info = JSON.parse(raw)
 
     const heights = new Set()
@@ -222,11 +332,11 @@ app.post('/api/download', async (req, res) => {
   let quality
   let audioOnly = false
   try {
-    url = assertHttpUrl(String(req.body?.url ?? ''))
+    url = await assertPublicUrl(String(req.body?.url ?? '').trim())
     quality = req.body?.quality ? parseInt(req.body.quality, 10) : null
     audioOnly = req.body?.audioOnly === true
   } catch (error) {
-    return res.status(422).json({ error: error.message })
+    return res.status(400).json({ error: error.message })
   }
 
   if (running >= MAX_JOBS) {
@@ -253,7 +363,7 @@ app.post('/api/download', async (req, res) => {
   running += 1
   try {
     let filePath = null
-    await runYtDlpWithRetry(ytdlpArgs([...args, url]), (chunk) => {
+    await runYtDlpWithRetry(ytdlpArgs([...args, url.href]), (chunk) => {
       const lines = chunk.toString().split('\n')
       for (const line of lines) {
         const trimmed = line.trim()

@@ -1,5 +1,5 @@
 import { makePool } from './db.js'
-import { readJsonBody, sendJson } from './pro.js'
+import { readJsonBody, sameOrigin, sendJson } from './pro.js'
 import { clientIp, rateLimited } from './ratelimit.js'
 import {
   sendMail,
@@ -31,6 +31,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export async function contactSubmit(req, res) {
   if (req.method !== 'POST') {
     return sendJson(res, 405, { error: 'Method not allowed.' })
+  }
+  if (!sameOrigin(req)) {
+    return sendJson(res, 403, { error: 'Cross-site requests are not allowed.' })
   }
   if (rateLimited(`contact:${clientIp(req)}`, 4)) {
     return sendJson(res, 429, { error: 'Too many messages — try again in a minute.' })

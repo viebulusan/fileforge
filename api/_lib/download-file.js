@@ -6,6 +6,7 @@ import { readJsonBody, sameOrigin, sendJson, sessionUser } from './pro.js'
 import { clientIp, rateLimited } from './ratelimit.js'
 import { TESTING_UNLOCK_ALL, consumeToolUse, refundToolUse } from './usage.js'
 import { getUsableInfo } from './download-info.js'
+import { guardedFetch } from './ssrf.js'
 
 const DIRECT_FILE_RE = /\.(mp4|webm|mkv|mov|m4v|mp3|m4a|wav|ogg|flac|aac)(\?|$)/i
 const YT_HOST_RE = /(^|\.)youtube\.com$|^youtu\.be$/
@@ -106,9 +107,15 @@ export async function downloadFile(req, res) {
   const quality = typeof body?.quality === 'string' ? body.quality : ''
 
   // Direct file: pure pass-through. Fetch first so a dead link never burns
-  // one of the free downloads.
+  // one of the free downloads. guardedFetch blocks private/internal targets
+  // and re-validates every redirect hop (SSRF protection).
   if (DIRECT_FILE_RE.test(url.pathname)) {
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(55_000) })
+    let upstream
+    try {
+      upstream = await guardedFetch(url.href)
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message || 'Could not fetch that link.' })
+    }
     if (!upstream.ok || !upstream.body) {
       return sendJson(res, 502, { error: `Could not fetch that link (${upstream.status}).` })
     }

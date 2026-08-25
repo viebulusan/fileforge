@@ -33,9 +33,14 @@ export async function verifySend(req, res) {
     return sendJson(res, 200, { delivered: true })
   }
   // No SMTP credentials yet — surface the code so the flow still works while
-  // email setup is finished. The UI labels this clearly.
-  if (!mailConfigured() || delivery.reason === 'not_configured' || delivery.reason === 'auth_rejected') {
-    return sendJson(res, 200, { delivered: false, reason: delivery.reason, devCode: code })
+  // email setup is finished. The UI labels this clearly. Gated behind an env
+  // flag: a broken SMTP setup in production must never hand out codes.
+  const allowDevCode = process.env.ALLOW_DEV_OTP === '1'
+  if (!mailConfigured() && allowDevCode) {
+    return sendJson(res, 200, { delivered: false, reason: 'not_configured', devCode: code })
+  }
+  if (!mailConfigured()) {
+    return sendJson(res, 503, { error: 'Email verification is not configured yet — try again shortly.' })
   }
   return sendJson(res, 502, { error: 'Could not send the verification email — try again.' })
 }
