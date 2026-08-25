@@ -13,6 +13,23 @@ export default function Account() {
   const [planOverride, setPlanOverride] = useState(null)
   const [licenseKey, setLicenseKey] = useState(null)
 
+  const user = session?.user
+  const isProEarly = planOverride === 'pro' || (user?.plan ?? 'free') === 'pro'
+
+  useEffect(() => {
+    if (!isProEarly) return
+    let alive = true
+    fetch('/api/pro/key')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (alive && data?.key) setLicenseKey(data.key)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [isProEarly])
+
   if (isPending) {
     return (
       <div className="mx-auto max-w-2xl px-5 py-16 sm:px-8">
@@ -48,20 +65,6 @@ export default function Account() {
   }
 
   const isPro = planOverride === 'pro' || (user.plan ?? 'free') === 'pro'
-
-  useEffect(() => {
-    if (!isPro) return
-    let alive = true
-    fetch('/api/pro/key')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (alive && data?.key) setLicenseKey(data.key)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [isPro])
 
   async function redeem(event) {
     event.preventDefault()
