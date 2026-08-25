@@ -153,14 +153,6 @@ export default function Account() {
           </div>
         </dl>
 
-        {isPro && licenseKey && (
-          <p className="mt-4 border-t border-line pt-4 font-mono text-xs leading-relaxed text-ink-faint">
-            your license key: <span className="font-bold tracking-wider text-copper">{licenseKey}</span>
-            {' — '}
-            proof of purchase; redeemable on another account if you ever switch.
-          </p>
-        )}
-
         {!isPro && (
           <form onSubmit={redeem} className="mt-7 border-t border-line pt-6">
             <label
