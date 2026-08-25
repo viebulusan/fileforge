@@ -87,6 +87,19 @@ const app = express()
 app.use(cors({ origin: true }))
 app.use(express.json())
 
+app.get('/api/debug-pot', async (_req, res) => {
+  const { spawn } = await import('node:child_process')
+  const proc = spawn(YTDLP, ['-v', '--simulate', '--print', '%(title)s', 'https://youtu.be/O6nXrSheFdc'])
+  let out = ''
+  proc.stdout.on('data', (d) => { out += d })
+  proc.stderr.on('data', (d) => { out += d })
+  proc.on('close', () => {
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    const lines = out.split('\n').filter((l) => /pot|bgutil|Sign in|player|client|ERROR|debug/i.test(l))
+    res.end(lines.slice(-40).join('\n'))
+  })
+})
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, ytDlp: YTDLP })
 })
